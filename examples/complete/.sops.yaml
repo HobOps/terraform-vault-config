@@ -1,0 +1,5 @@
+creation_rules:
+- path_regex: (.*)
+  gcp_kms: projects/REPLACE_ME/locations/global/keyRings/REPLACE_ME/cryptoKeys/REPLACE_ME
+- path_regex: /dev/stdin
+  gcp_kms: projects/REPLACE_ME/locations/global/keyRings/REPLACE_ME/cryptoKeys/REPLACE_ME
