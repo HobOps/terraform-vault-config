@@ -8,13 +8,6 @@ check "oidc_requires_credentials" {
   }
 }
 
-check "oidc_requires_roles" {
-  assert {
-    condition     = !var.enable_oidc || length(local.oidc_all_bindings) > 0
-    error_message = "enable_oidc=true requires at least one oidc_roles or oidc_users entry."
-  }
-}
-
 check "oidc_requires_redirect_uris" {
   assert {
     condition     = !var.enable_oidc || length(var.oidc_redirect_uris) > 0
@@ -41,26 +34,28 @@ resource "vault_jwt_auth_backend" "oidc" {
   }
 }
 
-resource "vault_jwt_auth_backend_role" "oidc" {
-  for_each = var.enable_oidc ? local.oidc_all_bindings : {}
+# Domain login role (Role blank). Anyone matching hd can enter with no secrets access.
+# Extra access is granted later via Identity entities (oidc_users / oidc_roles.bound_emails).
+resource "vault_jwt_auth_backend_role" "oidc_default" {
+  count = var.enable_oidc ? 1 : 0
 
-  backend        = vault_jwt_auth_backend.oidc[0].path
-  role_name      = each.value.role_name
-  role_type      = "oidc"
-  user_claim     = "email"
-  oidc_scopes    = var.oidc_scopes
-  token_policies = each.value.token_policies
-  token_ttl      = each.value.token_ttl
-  token_max_ttl  = each.value.token_max_ttl
-  token_type     = "default"
+  backend         = vault_jwt_auth_backend.oidc[0].path
+  role_name       = "default"
+  role_type       = "oidc"
+  user_claim      = "email"
+  oidc_scopes     = var.oidc_scopes
+  token_policies  = ["default"]
+  token_ttl       = 3600
+  token_max_ttl   = 14400
+  token_type      = "default"
+  bound_audiences = [var.oidc_client_id]
 
   allowed_redirect_uris = var.oidc_redirect_uris
-  bound_audiences       = [var.oidc_client_id]
 
-  bound_claims = merge(
-    var.oidc_hosted_domain != null && var.oidc_hosted_domain != "" ? { hd = var.oidc_hosted_domain } : {},
-    each.value.bound_email != null ? { email = each.value.bound_email } : {},
-  )
+  # Only enforce Workspace domain — do NOT bind email here (provider mangles JSON lists).
+  bound_claims = var.oidc_hosted_domain != null && var.oidc_hosted_domain != "" ? {
+    hd = var.oidc_hosted_domain
+  } : {}
 
   claim_mappings = {
     email = "email"
@@ -68,4 +63,51 @@ resource "vault_jwt_auth_backend_role" "oidc" {
   }
 
   depends_on = [vault_policy.this]
+}
+
+# Optional named roles (bound_emails empty): selected explicitly at login (e.g. ops).
+resource "vault_jwt_auth_backend_role" "oidc_open" {
+  for_each = var.enable_oidc ? local.oidc_open_role_bindings : {}
+
+  backend         = vault_jwt_auth_backend.oidc[0].path
+  role_name       = each.value.role_name
+  role_type       = "oidc"
+  user_claim      = "email"
+  oidc_scopes     = var.oidc_scopes
+  token_policies  = each.value.token_policies
+  token_ttl       = each.value.token_ttl
+  token_max_ttl   = each.value.token_max_ttl
+  token_type      = "default"
+  bound_audiences = [var.oidc_client_id]
+
+  allowed_redirect_uris = var.oidc_redirect_uris
+
+  bound_claims = var.oidc_hosted_domain != null && var.oidc_hosted_domain != "" ? {
+    hd = var.oidc_hosted_domain
+  } : {}
+
+  claim_mappings = {
+    email = "email"
+    name  = "name"
+  }
+
+  depends_on = [vault_policy.this]
+}
+
+# Extra policies for specific humans (applied on top of the default login token).
+resource "vault_identity_entity" "oidc_user" {
+  for_each = var.enable_oidc ? local.oidc_identity_policies : {}
+
+  name     = each.key
+  policies = each.value
+
+  depends_on = [vault_policy.this]
+}
+
+resource "vault_identity_entity_alias" "oidc_user" {
+  for_each = var.enable_oidc ? local.oidc_identity_policies : {}
+
+  name           = each.key
+  mount_accessor = vault_jwt_auth_backend.oidc[0].accessor
+  canonical_id   = vault_identity_entity.oidc_user[each.key].id
 }

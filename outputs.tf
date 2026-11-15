@@ -19,13 +19,18 @@ output "oidc_path" {
 }
 
 output "oidc_role_names" {
-  description = "OIDC role names created in Vault."
-  value       = var.enable_oidc ? sort(keys(local.oidc_all_bindings)) : []
+  description = "OIDC role names created in Vault (includes default when identity login is used)."
+  value       = var.enable_oidc ? local.oidc_role_names : []
 }
 
 output "oidc_default_role" {
   description = "Default OIDC role used when the client does not specify one."
   value       = var.enable_oidc ? local.oidc_default_role : null
+}
+
+output "oidc_identity_users" {
+  description = "Allowlisted OIDC emails and their Identity policies (blank Role login)."
+  value       = var.enable_oidc ? local.oidc_identity_policies : {}
 }
 
 output "oidc_redirect_uris" {

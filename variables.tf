@@ -119,9 +119,10 @@ variable "oidc_default_role" {
 
 variable "oidc_roles" {
   description = <<-EOT
-    Domain-wide OIDC roles. Key = role name.
-    bound_emails empty → single role bound only by hd (if set).
-    bound_emails non-empty → one Vault role per email (name: <role>--user_at_domain).
+    OIDC roles. Key = role name.
+    bound_emails empty → open named role (any user matching hd); selected by role name.
+    bound_emails non-empty → those emails get token_policies via Identity entities
+    (they still log in with Role blank / "default").
   EOT
   type = map(object({
     token_policies = list(string)
@@ -134,8 +135,9 @@ variable "oidc_roles" {
 
 variable "oidc_users" {
   description = <<-EOT
-    Per-user OIDC bindings: email → list of Vault policies.
-    Creates roles named user--user_at_domain.
+    Extra policies for specific emails (Identity entities).
+    All @hosted_domain users can log in with Role blank; without an entry here they
+    only get Vault's built-in "default" policy (no secrets).
   EOT
   type        = map(list(string))
   default     = {}

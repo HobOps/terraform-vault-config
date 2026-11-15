@@ -78,46 +78,45 @@ locals {
     ) : name => policy if policy != null && policy != ""
   }
 
-  oidc_role_bindings = merge([
-    for role_name, role in var.oidc_roles : (
-      length(role.bound_emails) == 0 ? {
-        (role_name) = {
-          role_name      = role_name
-          token_policies = role.token_policies
-          token_ttl      = role.token_ttl
-          token_max_ttl  = role.token_max_ttl
-          bound_email    = null
-        }
-        } : {
+  # Email → policies from oidc_roles.bound_emails (open roles handled separately).
+  oidc_policies_from_roles = merge(concat(
+    [{}],
+    [
+      for role in values(var.oidc_roles) : {
         for email in role.bound_emails :
-        "${role_name}--${replace(replace(email, "@", "_at_"), ".", "_")}" => {
-          role_name      = "${role_name}--${replace(replace(email, "@", "_at_"), ".", "_")}"
-          token_policies = role.token_policies
-          token_ttl      = role.token_ttl
-          token_max_ttl  = role.token_max_ttl
-          bound_email    = email
-        }
+        email => role.token_policies
       }
-    )
-  ]...)
+    ],
+  )...)
 
-  oidc_user_bindings = {
-    for email, policies in var.oidc_users :
-    "user--${replace(replace(email, "@", "_at_"), ".", "_")}" => {
-      role_name      = "user--${replace(replace(email, "@", "_at_"), ".", "_")}"
-      token_policies = policies
-      token_ttl      = 3600
-      token_max_ttl  = 14400
-      bound_email    = email
-    }
+  # Humans with extra policies (Identity). Everyone else can still login via role "default"
+  # with only the built-in "default" policy (no secrets).
+  oidc_identity_policies = {
+    for email in distinct(concat(keys(local.oidc_policies_from_roles), keys(var.oidc_users))) :
+    email => distinct(concat(
+      lookup(local.oidc_policies_from_roles, email, []),
+      lookup(var.oidc_users, email, []),
+    ))
   }
 
-  oidc_all_bindings = merge(local.oidc_role_bindings, local.oidc_user_bindings)
+  # Open OIDC roles only (bound_emails empty) — still selected by role name at login.
+  oidc_open_role_bindings = {
+    for role_name, role in var.oidc_roles :
+    role_name => {
+      role_name      = role_name
+      token_policies = role.token_policies
+      token_ttl      = role.token_ttl
+      token_max_ttl  = role.token_max_ttl
+    }
+    if length(role.bound_emails) == 0
+  }
 
-  oidc_default_role = coalesce(
-    var.oidc_default_role,
-    contains(keys(local.oidc_all_bindings), "readonly") ? "readonly" : try(sort(keys(local.oidc_all_bindings))[0], null),
-  )
+  oidc_default_role = coalesce(var.oidc_default_role, "default")
+
+  oidc_role_names = compact(concat(
+    ["default"],
+    sort(keys(local.oidc_open_role_bindings)),
+  ))
 
   approle_secret_ids_fixed = {
     for name, role in var.approle_roles :

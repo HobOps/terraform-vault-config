@@ -48,16 +48,12 @@ module "vault_config" {
     "http://localhost:8250/oidc/callback",
   ]
 
+  # Domain users log in with Role blank (default = no secrets).
+  # Extra access: Identity via oidc_users / oidc_roles.bound_emails.
   oidc_roles = {
     admin = {
       token_policies = ["admin"]
       bound_emails   = ["alice@example.com"]
-    }
-    ops = {
-      token_policies = ["ops"]
-    }
-    readonly = {
-      token_policies = ["readonly"]
     }
   }
 
